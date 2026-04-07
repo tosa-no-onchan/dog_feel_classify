@@ -1,27 +1,17 @@
 #!/usr/bin/env python
 # coding: utf-8
-
+#
+# dog_feel_orangepi_onnx.py
 # In[ ]:
 import onnxruntime as ort
-
-#import torch
-#import torch.nn as nn
-from transformers import ViTConfig, ViTModel, ASTConfig, ASTModel
 import random  # これを追加
 import os
 import sys
-#from transformers import get_linear_schedule_with_warmup
+
+#from scipy.signal import get_window
+#from scipy.fftpack import dct
 
 # In[ ]:
-from transformers import ViTImageProcessor, ASTFeatureExtractor
-
-# 1. 映像用プロセッサ (ViTの入力形式 224x224, 正規化などを担当)
-video_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
-
-# 2. 音声用エキストラクター (ASTのメルスペクトログラム変換を担当)
-audio_extractor = ASTFeatureExtractor.from_pretrained("MIT/ast-finetuned-audioset-10-10-0.4593")
-
-
 num_classes=5
 
 #num_frames = 16 
@@ -31,11 +21,9 @@ max_duration = 4.0
 
 CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
 
-
 # In[ ]:
 
 import cv2
-#import torch
 import numpy as np
 
 def resize_with_padding(image, target_size=(224, 224)):
@@ -52,6 +40,7 @@ def resize_with_padding(image, target_size=(224, 224)):
     canvas[offset_y:offset_y+new_h, offset_x:offset_x+new_w] = resized
 
     return canvas
+
 
 # In[ ]:
 
@@ -71,18 +60,52 @@ session = ort.InferenceSession(MODEL_PATH,
                                 providers=['CPUExecutionProvider'])
 
 print("OK")
-
 #sys.exit()
 
 # label, score = predict_video("test_video.mp4", model)
 # print(f"判定結果: {label} (確信度: {score:.2f})")
 
+
 # In[ ]:
 
-def predict_video_onnx_cpu(video_path, num_frames=8, max_duration=4.0):
-    # --- 前処理 (映像・音声ともにPyTorch版と同じ) ---
-    # ... (中略: pixel_values と input_values を作成する工程) ...
+def preprocess_images_numpy(frames):
+    """ViTImageProcessorの完全再現 (NumPy版)"""
+    # 0-255 -> 0-1 & Normalize (mean=0.5, std=0.5)
+    # 計算式: (x / 255.0 - 0.5) / 0.5 => x / 127.5 - 1.0
+    images = np.array(frames).astype(np.float32) / 127.5 - 1.0
+    # (8, 224, 224, 3) -> (1, 8, 3, 224, 224) ※軸入れ替え含む
+    images = images.transpose(0, 3, 1, 2)
+    return np.expand_dims(images, axis=0)
+
+
+# In[ ]:
+
+def preprocess_audio_numpy(y, max_length=1024):
+    """ASTFeatureExtractorの簡易再現 (NumPy版)"""
+    # librosaを使わずscipyでメルスペクトログラム計算（より軽量）
+    import librosa # もしlibrosaがあればそのまま利用、なければscipyで実装可
+    
+    # 1. メルスペクトログラム (n_fft=400, hop=160, mels=128)
+    S = librosa.feature.melspectrogram(y=y, sr=16000, n_fft=400, hop_length=160, 
+                                       win_length=400, window='hamming', n_mels=128, center=False)
+    # 2. Log変換 & 転置 & 正規化 (-4.26, 4.56)
+    log_spec = np.log(S + 1e-10).T
+    # 3. パディング/切り出し (1024固定)
+    if log_spec.shape[0] < max_length:
+        log_spec = np.pad(log_spec, ((0, max_length - log_spec.shape[0]), (0, 0)))
+    else:
+        log_spec = log_spec[:max_length, :]
+    
+    log_spec = (log_spec - (-4.2677393)) / (4.5689974 * 2)
+    return np.expand_dims(log_spec.astype(np.float32), axis=0)
+
+# In[ ]:
+
+
+def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
+    # --- 1. 映像読み込み (OpenCV) ---
     cap = cv2.VideoCapture(video_path)
+    # (中略: indices計算と8フレーム抽出。以前のresize_with_paddingを使用)
     fps = cap.get(cv2.CAP_PROP_FPS) # 1秒あたりのフレーム数
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
@@ -106,26 +129,14 @@ def predict_video_onnx_cpu(video_path, num_frames=8, max_duration=4.0):
         else:
             frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
     cap.release()
+    
+    #frames = [] # ここに (224,224,3) のRGB画像8枚を入れる
+    #cap.release()
 
-    # --- 映像 ---
-    pixel_values = video_processor(
-        images=frames, 
-        return_tensors="pt", # 再び pt に戻す（または np でも可）
-        do_resize=False,
-        do_rescale=True, 
-        do_normalize=True
-    ).pixel_values
-
-
-    #print('type(pixel_values):',type(pixel_values))
-    # バッチ次元追加
-    pixel_values = np.expand_dims(pixel_values, axis=0)
-    #print('pixel_values.shape',pixel_values.shape)
-    #pixel_values = torch.from_numpy(pixel_values)
-    #print('type(pixel_values):',type(pixel_values))
-
-    #pixel_values = pixel_values.unsqueeze(0) 
-
+    # --- 2. 前処理 (NumPyのみ) ---
+    pixel_values = preprocess_images_numpy(frames)
+    
+    # --- 3. 音声読み込み & 前処理 ---
     target_len = 16000 * int(max_duration)
 
     # --- 2. 音声抽出 (ここが NameError の原因でした) ---
@@ -146,154 +157,23 @@ def predict_video_onnx_cpu(video_path, num_frames=8, max_duration=4.0):
         # 音声がない等のエラー時は無音を作成
         #y = np.zeros(48000)
         y = np.zeros(target_len)
-
-    # --- 音声 ---
-    input_values = audio_extractor(
-        y, 
-        sampling_rate=16000, 
-        return_tensors="pt" # ライブラリ内部で torch を使うので pt に戻す
-    ).input_values
-
-
-    # ONNX用にnumpy形式に変換
-    #onnx_video = pixel_values.cpu().numpy()
-    onnx_video = pixel_values
-    #onnx_audio = input_values.cpu().numpy()
-    onnx_audio = input_values.numpy()
- 
-    # --- ONNX推論実行 ---
-    #start_model = time.time()
     
-    # 入力名の指定が必要
-    inputs = {
-        'video_input': onnx_video,
-        'audio_input': onnx_audio
-    }
-    # outputs[0] がクラス判定のロジット
-    outputs = session.run(None, inputs)
-    
-    #end_model = time.time()
+    # y = (4秒分の音声データ)
+    input_values = preprocess_audio_numpy(y)
 
-    # ソフトマックス等の後処理は numpy で実装
+    # --- 4. ONNX推論 ---
+    start = time.time()
+    outputs = session.run(None, {'video_input': pixel_values, 'audio_input': input_values})
     logits = outputs[0]
+    
+    # --- 5. 結果計算 (NumPy版 Softmax) ---
     exp_logits = np.exp(logits - np.max(logits))
     probs = exp_logits / exp_logits.sum()
     idx = np.argmax(probs)
     
-    #print(f"実機(CPU) 推論時間: {(end_model - start_model)*1000:.2f} ms")
-
+    print(f"Inference Time: {(time.time() - start)*1000:.2f} ms")
     return CLASS_NAMES[idx], probs[0][idx]
 
-
-def predict_video_onnx(video_path, num_frames=8, max_duration=4.0):
-    # --- 前処理 (映像・音声ともにPyTorch版と同じ) ---
-    # ... (中略: pixel_values と input_values を作成する工程) ...
-    cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) # 1秒あたりのフレーム数
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    # --- 映像も「最初の3秒」に限定する ---
-    #max_duration = 3.0
-    # 3秒分、または動画全体の短い方のフレーム数をターゲットにする
-    end_frame = min(total_frames, int(max_duration * fps))
-
-    # 0フレームから3秒地点（end_frame）の間で16枚抜く
-    indices = np.linspace(0, end_frame - 1, num_frames).astype(int)
-
-    frames = []
-    for i in indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        ret, frame = cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # 1. アスペクト比維持リサイズ
-            frame = resize_with_padding(frame)
-            frames.append(frame)
-        else:
-            frames.append(np.zeros((224, 224, 3), dtype=np.uint8))
-    cap.release()
-
-    # 学習時と同じ正規化 (do_resize=False)
-    #pixel_values = video_processor(images=frames, return_tensors="pt", do_resize=False).pixel_values
-
-    # Dataset内で pixel_values を作る際、do_resize=False を指定します
-    pixel_values = video_processor(
-        images=frames, 
-        return_tensors="pt", 
-        do_resize=False,       # これが重要！ video_processor 側へ通知!! 形は自分で整えたから、プロセッサはリサイズしなくていいよ。
-        do_rescale=True, 
-        do_normalize=True
-    ).pixel_values
-
-    #print('type(pixel_values):',type(pixel_values))
-    # バッチ次元追加
-    #pixel_values = np.expand_dims(pixel_values, axis=0)
-    #print('pixel_values.shape',pixel_values.shape)
-    #pixel_values = torch.from_numpy(pixel_values)
-    #print('type(pixel_values):',type(pixel_values))
-
-    pixel_values = pixel_values.unsqueeze(0) 
-
-    target_len = 16000 * int(max_duration)
-
-    # --- 2. 音声抽出 (ここが NameError の原因でした) ---
-    try:
-        with VideoFileClip(path) as video:
-            duration = min(video.duration, 3.0)
-            audio_clip = video.audio.subclipped(0, duration)
-            y = audio_clip.to_soundarray(fps=16000)
-            if len(y.shape) > 1:
-                y = y.mean(axis=1)
-
-            #target_len = 48000
-            if len(y) < target_len:
-                y = np.pad(y, (0, target_len - len(y)))
-            else:
-                y = y[:target_len]
-    except:
-        # 音声がない等のエラー時は無音を作成
-        #y = np.zeros(48000)
-        y = np.zeros(target_len)
-
-    # --- 音声処理 ---
-    #try:
-    #    y, sr = librosa.load(video_path, sr=16000, duration=5.0)
-    #    if len(y) < 16000 * 5:
-    #        y = np.pad(y, (0, 16000 * 5 - len(y)))
-    #except:
-    #    y = np.zeros(16000 * 5) # 音声がない場合
-
-    #input_values = audio_extractor(y, sampling_rate=16000, return_tensors="pt").input_values
-
-    # ここで 'input_values' を確実に定義します
-    #input_values = audio_extractor(y, sampling_rate=16000, return_tensors="pt").input_values.squeeze(0)
-    input_values = audio_extractor(y, sampling_rate=16000, return_tensors="pt").input_values
-
-
-    # ONNX用にnumpy形式に変換
-    onnx_video = pixel_values.cpu().numpy()
-    onnx_audio = input_values.cpu().numpy()
-
-    # --- ONNX推論実行 ---
-    start_model = time.time()
-    
-    # 入力名の指定が必要
-    inputs = {
-        'video_input': onnx_video,
-        'audio_input': onnx_audio
-    }
-    # outputs[0] がクラス判定のロジット
-    outputs = session.run(None, inputs)
-    
-    end_model = time.time()
-    
-    # --- 後処理 ---
-    logits = torch.from_numpy(outputs[0]) # Softmax計算のために一時的にTensorへ
-    probabilities = torch.nn.functional.softmax(logits, dim=1)
-    confidence, predicted_idx = torch.max(probabilities, 1)
-
-    print(f"ONNX Model inference time: {(end_model - start_model)*1000:.2f} ms")
-    return CLASS_NAMES[predicted_idx.item()], confidence.item()
 
 
 # In[ ]:
@@ -320,7 +200,7 @@ if True:
             video_path=data_dir+'/'+flist[i]
             print("video_path:",video_path)
             #cnt+=1
-            result, confidence=predict_video_onnx_cpu(video_path, num_frames=num_frames, max_duration=max_duration)
+            result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
             print('result:',result, 'confidence:',confidence)
 
 
@@ -333,7 +213,7 @@ if False:
             video_path=data_dir+'/'+flist[cnt]
             #print("video_path:",video_path)
             cnt+=1
-            result, confidence=predict_video_onnx_cpu(video_path, num_frames=num_frames, max_duration=max_duration)
+            result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
             #print('result:',result, 'confidence:',confidence)
 
 
