@@ -19,7 +19,7 @@ num_frames = 8
 #max_duration = 3.0
 max_duration = 4.0
 
-CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
+CLASS_NAMES = ["alert", "background", "hungry", "log_time_no_see", "miss"] # フォルダ名と一致させる
 
 # In[ ]:
 
@@ -150,7 +150,8 @@ def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
     start = time.time()
     outputs = session.run(None, {'video_input': pixel_values, 'audio_input': input_values})
     logits = outputs[0]
-    
+    #print('logits.shape:',logits.shape)
+
     # --- 5. 結果計算 (NumPy版 Softmax) ---
     exp_logits = np.exp(logits - np.max(logits))
     probs = exp_logits / exp_logits.sum()

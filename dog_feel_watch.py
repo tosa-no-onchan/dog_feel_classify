@@ -14,11 +14,14 @@ import numpy as np
 import dog_feel_orangepi_onnx as my_model
 import cv2
 
+import signal
+
 num_classes=5
 num_frames = 8
 max_duration = 4.0
 
-CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
+#CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
+CLASS_NAMES = ["alert", "background", "hungry", "log_time_no_see", "miss"]
 
 # 1. Queueのサイズを制限する (重要!)
 # 推論待ちが溜まりすぎるとメモリがパンクするので、最大2つまでに制限
@@ -68,7 +71,6 @@ pre_a_buf = deque(maxlen=WINDOW_SIZE)
 def integrated_capture_loop():
     print("integrated_capture_loop(): start")
     is_recording = False
-    remaining_steps = 0
 
     # Camera 初期化
     cap = cv2.VideoCapture(0)
@@ -183,6 +185,9 @@ def capture_4sec_data():
     
     # 60枚の中から等間隔に8枚選ぶ (C++の indices 計算と同じ)
     indices = np.linspace(0, len(current_video)-1, num_frames).astype(int)
+
+    #print('indices:',indices)
+
     frames_8 = [current_video[i] for i in indices]
     # ここで NumPy化して「移し替え」完了
     v_data = my_model.preprocess_images_numpy(frames_8)
@@ -238,6 +243,7 @@ def inference_worker(model_session, class_names):
             if True:
                 outputs = model_session.run(None, inputs)
                 logits = outputs[0]
+                #print('logits.shape:',logits.shape)
                 # --- 5. 結果計算 (NumPy版 Softmax) ---
                 exp_logits = np.exp(logits - np.max(logits))
                 probs = exp_logits / exp_logits.sum()
@@ -333,4 +339,5 @@ if __name__ == '__main__':
         # 2. スレッドが完全に終わるまで待機
         inference_thread.join()
     print("リソースを解放しました。")
+    sys.exit(0)
     
