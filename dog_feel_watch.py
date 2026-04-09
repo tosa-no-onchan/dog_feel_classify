@@ -13,7 +13,6 @@ import time
 import numpy as np
 import dog_feel_orangepi_onnx as my_model
 import cv2
-
 import signal
 
 num_classes=5
@@ -36,10 +35,8 @@ from collections import deque
 FPS = 15  # Orange Piでの現実的なフレームレート
 MAX_LEN = FPS * int(max_duration)  # 4秒分 = 60枚
 
-
 inference_worker_f=True
 integrated_capture_loop_f=True
-
 
 #2. 音声の常時キャプチャ（PyAudio）
 #音声も同様に、直近4秒分を常にバッファしておきます。
@@ -94,16 +91,16 @@ def integrated_capture_loop():
         #frame = get_frame()      # 0.1秒間隔で取得
         ret, frame = cap.read()
 
-        # 1. アスペクト比維持リサイズ
-        frame_resized = my_model.resize_with_padding(frame)
+        # 2. 最初に BGR -> RGB 変換
+        frame_tmp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 3. アスペクト比維持リサイズ
+        frame_rgb = my_model.resize_with_padding(frame_tmp)
         # 表示確認するなら、ここ!!
         if False:
-            cv2.imshow("Result", frame_resized)
+            cv2.imshow("Result", frame_rgb)
             if cv2.waitKey(1) & 0xFF == 27: # ESCキー
                 print("ESC検知: 停止フラグを折ります")
                 caputure_f_video = False # これで while を抜ける
-
-        frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
 
         # Audio get
         #audio = get_audio()      # 0.1秒分
@@ -214,6 +211,15 @@ def capture_4sec_data():
             wf.setframerate(16000)
             # y_4sec は float なので戻す
             wf.writeframes((y_4sec * 32767).astype(np.int16).tobytes())
+    if False:
+        for i in range(8):
+            img = frames_8[i]
+            cv2.imshow("Result", img)
+            time.sleep(0.3) # CPU負荷を抑えるためのわずかな休憩
+            if cv2.waitKey(1) & 0xFF == 27: # ESCキー
+                print("ESC検知: 停止フラグを折ります")
+                caputure_f_video = False # これで while を抜ける
+
 
     #  v_data = np.zeros((1, 8, 3, 224, 224), dtype=np.float32)
     #  a_data = np.zeros((1, 1024, 128), dtype=np.float32)
