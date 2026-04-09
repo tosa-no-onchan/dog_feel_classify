@@ -44,23 +44,7 @@ def resize_with_padding(image, target_size=(224, 224)):
 
 # In[ ]:
 
-#MODEL_PATH = "output-16frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
-#MODEL_PATH = "output-8frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
-MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
 
-# Int8 quant
-#MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/multimodal_model_quant.onnx" # 量子化版を指定
-
-# ONNXセッションの初期化 (CPU専用)
-# Orange PiのCPUリソースをフル活用するため、セッションオプションを設定
-options = ort.SessionOptions()
-options.intra_op_num_threads = 4  # Orange Piのコア数に合わせて調整
-session = ort.InferenceSession(MODEL_PATH, 
-                                sess_options=options, 
-                                providers=['CPUExecutionProvider'])
-
-print("OK")
-#sys.exit()
 
 # label, score = predict_video("test_video.mp4", model)
 # print(f"判定結果: {label} (確信度: {score:.2f})")
@@ -135,6 +119,7 @@ def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
 
     # --- 2. 前処理 (NumPyのみ) ---
     pixel_values = preprocess_images_numpy(frames)
+    #print('pixel_values.dtype:',pixel_values.dtype)
     
     # --- 3. 音声読み込み & 前処理 ---
     target_len = 16000 * int(max_duration)
@@ -178,46 +163,65 @@ def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
 
 # In[ ]:
 
+if __name__ == '__main__':
 
-# --- 1. ファイルパスとラベルのリストを作成 ---
-data_dir = "dataset_h264/miss"
+    #MODEL_PATH = "output-16frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
+    #MODEL_PATH = "output-8frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
+    MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
 
-flist=os.listdir(data_dir)
-cnt=0
+    # Int8 quant
+    #MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/multimodal_model_quant.onnx" # 量子化版を指定
 
-import time
+    # ONNXセッションの初期化 (CPU専用)
+    # Orange PiのCPUリソースをフル活用するため、セッションオプションを設定
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 4  # Orange Piのコア数に合わせて調整
+    session = ort.InferenceSession(MODEL_PATH, 
+                                    sess_options=options, 
+                                    providers=['CPUExecutionProvider'])
 
-# In[ ]:
+    print("OK")
+    #sys.exit()
 
-video_path=data_dir+'/'+flist[cnt]
-if True:
-    for dir in CLASS_NAMES:
-        data_dir = os.path.join("dataset_h264", dir)
-        flist=os.listdir(data_dir)
-        p_num = min(len(flist),100)
-        print('-----')
-        for i in range(p_num):
-            video_path=data_dir+'/'+flist[i]
-            print("video_path:",video_path)
-            #cnt+=1
-            result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
-            print('result:',result, 'confidence:',confidence)
+    # --- 1. ファイルパスとラベルのリストを作成 ---
+    data_dir = "dataset_h264/miss"
 
+    flist=os.listdir(data_dir)
+    cnt=0
 
-if False:
-    # --- ウォームアップ (最初の数回は計測対象外にする) ---
-    for _ in range(5):
-        cnt=0
-        print('-------')
-        for _ in range(6):
-            video_path=data_dir+'/'+flist[cnt]
-            #print("video_path:",video_path)
-            cnt+=1
-            result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
-            #print('result:',result, 'confidence:',confidence)
+    import time
+
+    # In[ ]:
+
+    video_path=data_dir+'/'+flist[cnt]
+    if True:
+        for dir in CLASS_NAMES:
+            data_dir = os.path.join("dataset_h264", dir)
+            flist=os.listdir(data_dir)
+            p_num = min(len(flist),100)
+            print('-----')
+            for i in range(p_num):
+                video_path=data_dir+'/'+flist[i]
+                print("video_path:",video_path)
+                #cnt+=1
+                result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
+                print('result:',result, 'confidence:',confidence)
 
 
-# In[ ]:
+    if False:
+        # --- ウォームアップ (最初の数回は計測対象外にする) ---
+        for _ in range(5):
+            cnt=0
+            print('-------')
+            for _ in range(6):
+                video_path=data_dir+'/'+flist[cnt]
+                #print("video_path:",video_path)
+                cnt+=1
+                result, confidence=predict_video_fast(video_path, num_frames=num_frames, max_duration=max_duration)
+                #print('result:',result, 'confidence:',confidence)
+
+
+    # In[ ]:
 
 
 
