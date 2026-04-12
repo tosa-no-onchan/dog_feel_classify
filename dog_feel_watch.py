@@ -19,8 +19,9 @@ num_classes=5
 num_frames = 8
 max_duration = 4.0
 
-#CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
-CLASS_NAMES = ["alert", "background", "hungry", "log_time_no_see", "miss"]
+CLASS_NAMES = ["background","alert", "hungry", "miss", "log_time_no_see"] # フォルダ名と一致させる
+# dog_feel_train.ipynb の学習時の
+# classes = ["alert", "hungry", "miss", "log_time_no_see"] に一致させること。
 
 # 1. Queueのサイズを制限する (重要!)
 # 推論待ちが溜まりすぎるとメモリがパンクするので、最大2つまでに制限
@@ -46,7 +47,8 @@ CHUNK = 1024   # 0.064 秒 分
 #CHUNK = 1600  # 100ms（0.1秒）単位
 RATE = 16000
 
-THRESHOLD = 0.05  # ここは環境に合わせて調整
+#THRESHOLD = 0.05  # ここは環境に合わせて調整
+THRESHOLD = 0.02  # ここは環境に合わせて調整
 # 0.5 秒のチェック
 #WINDOW_SIZE = 5   # 0.1秒 × 5 = 0.5秒
 WINDOW_SIZE = int(0.5 / (1.0 / float(FPS))) # 7.5 -> 7
@@ -183,8 +185,6 @@ def capture_4sec_data():
     # 60枚の中から等間隔に8枚選ぶ (C++の indices 計算と同じ)
     indices = np.linspace(0, len(current_video)-1, num_frames).astype(int)
 
-    #print('indices:',indices)
-
     frames_8 = [current_video[i] for i in indices]
     # ここで NumPy化して「移し替え」完了
     v_data = my_model.preprocess_images_numpy(frames_8)
@@ -195,14 +195,6 @@ def capture_4sec_data():
     a_data = my_model.preprocess_audio_numpy(y_4sec)
 
     if False:
-        cv2.imwrite("debug_video_snap0.jpg", cv2.cvtColor(frames_8[0], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap1.jpg", cv2.cvtColor(frames_8[1], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap2.jpg", cv2.cvtColor(frames_8[2], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap3.jpg", cv2.cvtColor(frames_8[3], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap4.jpg", cv2.cvtColor(frames_8[4], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap5.jpg", cv2.cvtColor(frames_8[5], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap6.jpg", cv2.cvtColor(frames_8[6], cv2.COLOR_RGB2BGR))
-        cv2.imwrite("debug_video_snap7.jpg", cv2.cvtColor(frames_8[7], cv2.COLOR_RGB2BGR))
         # 音声を保存 (16bit整数に戻して保存)
         import wave
         with wave.open("debug_audio_snap.wav", "wb") as wf:
@@ -211,15 +203,21 @@ def capture_4sec_data():
             wf.setframerate(16000)
             # y_4sec は float なので戻す
             wf.writeframes((y_4sec * 32767).astype(np.int16).tobytes())
-    if False:
-        for i in range(8):
-            img = frames_8[i]
-            cv2.imshow("Result", img)
-            time.sleep(0.3) # CPU負荷を抑えるためのわずかな休憩
-            if cv2.waitKey(1) & 0xFF == 27: # ESCキー
-                print("ESC検知: 停止フラグを折ります")
-                caputure_f_video = False # これで while を抜ける
 
+    if False:
+        # 画面に 8個 並べて表示します。
+        images_bgr = [cv2.cvtColor(f, cv2.COLOR_RGB2BGR) for f in frames_8]
+        # 1行目（0〜3番目の4枚）を横に連結
+        row1 = cv2.hconcat(images_bgr[0:4])
+        # 2行目（4〜7番目の4枚）を横に連結
+        row2 = cv2.hconcat(images_bgr[4:8])
+        # 1行目と2行目を縦に連結
+        result = cv2.vconcat([row1, row2])
+        # 表示
+        cv2.imshow('Grid 4x2', result)
+        if cv2.waitKey(1) & 0xFF == 27: # ESCキー
+            print("ESC検知: 停止フラグを セット します!")
+            caputure_f_video = False # これで while を抜ける
 
     #  v_data = np.zeros((1, 8, 3, 224, 224), dtype=np.float32)
     #  a_data = np.zeros((1, 1024, 128), dtype=np.float32)
@@ -293,7 +291,8 @@ def trigger_detected():
     return False
 
 if __name__ == '__main__':
-    MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
+    #MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
+    MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4-full-scartch.onnx"
     # ONNXセッションの初期化 (CPU専用)
     # Orange PiのCPUリソースをフル活用するため、セッションオプションを設定
     options = ort.SessionOptions()

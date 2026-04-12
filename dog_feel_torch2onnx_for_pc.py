@@ -3,6 +3,7 @@ import torch.nn as nn
 
 import numpy as np
 import librosa
+import sys
 
 import OrangePiOptimizedTransformer as mymodel
 
@@ -59,15 +60,16 @@ num_frames = 8
 #max_duration = 3.0
 max_duration = 4.0
 
-CLASS_NAMES = ["alert", "hungry", "miss", "log_time_no_see", "background"] # フォルダ名と一致させる
+CLASS_NAMES = ["background","alert", "hungry", "miss", "log_time_no_see"] # フォルダ名と一致させる
 
 #MODEL_PATH = "output-16frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
 #MODEL_PATH = "output-8frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
-MODEL_PATH = "output-8frame4sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
-
+#MODEL_PATH = "output-8frame4sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
+MODEL_PATH = "output-8frame4sec-full-scratch/best_loss_multimodal_model.pth"
 
 #save_path = "dog_model_fixed-8_3.onnx"
-save_path = "dog_model_fixed-8_4.onnx"
+#save_path = "dog_model_fixed-8_4.onnx"
+save_path = "dog_model_fixed-8_4-full-scartch.onnx"
 
 # --- 使い方 ---
 # model = YourModelClass(...) # 以前定義したモデルクラスをインスタンス化
@@ -77,6 +79,8 @@ model.to(DEVICE)
 
 export_to_onnx_for_rknn(model, num_frames = num_frames,save_path=save_path)
 
+
+sys.exit()
 
 # 8bit 化を追加
 
@@ -94,7 +98,6 @@ model_quant = 'multimodal_model_quant.onnx'
 # 1. モデルの型情報を補完するために一旦ロードして保存し直す（shape_inference対策）
 onnx_model = onnx.load(model_fp32)
 onnx.save(onnx_model, model_fp32)
-
 
 
 # 動的量子化の実行

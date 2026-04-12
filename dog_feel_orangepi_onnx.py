@@ -7,6 +7,7 @@ import onnxruntime as ort
 import random  # これを追加
 import os
 import sys
+from moviepy import VideoFileClip
 
 #from scipy.signal import get_window
 #from scipy.fftpack import dct
@@ -19,9 +20,9 @@ num_frames = 8
 #max_duration = 3.0
 max_duration = 4.0
 
-CLASS_NAMES = ["alert", "background", "hungry", "log_time_no_see", "miss"] # フォルダ名と一致させる
-
-# In[ ]:
+CLASS_NAMES = ["background","alert", "hungry", "miss", "log_time_no_see"] # フォルダ名と一致させる
+# dog_feel_train.ipynb の学習時の
+# classes = ["background","alert", "hungry", "miss", "log_time_no_see"] に一致させること。
 
 import cv2
 import numpy as np
@@ -43,7 +44,6 @@ def resize_with_padding(image, target_size=(224, 224)):
 
 
 # In[ ]:
-
 
 
 # label, score = predict_video("test_video.mp4", model)
@@ -126,7 +126,7 @@ def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
 
     # --- 2. 音声抽出 (ここが NameError の原因でした) ---
     try:
-        with VideoFileClip(path) as video:
+        with VideoFileClip(video_path) as video:
             duration = min(video.duration, 3.0)
             audio_clip = video.audio.subclipped(0, duration)
             y = audio_clip.to_soundarray(fps=16000)
@@ -157,7 +157,7 @@ def predict_video_fast(video_path, num_frames=8, max_duration=4.0):
     probs = exp_logits / exp_logits.sum()
     idx = np.argmax(probs)
     
-    print(f"Inference Time: {(time.time() - start)*1000:.2f} ms")
+    #print(f"Inference Time: {(time.time() - start)*1000:.2f} ms")
     return CLASS_NAMES[idx], probs[0][idx]
 
 
@@ -168,7 +168,8 @@ if __name__ == '__main__':
 
     #MODEL_PATH = "output-16frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
     #MODEL_PATH = "output-8frame3sec/best_loss_multimodal_model.pth"  # 保存したモデルのパス
-    MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
+    #MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4.onnx"  # 保存したモデルのパス
+    MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/dog_model_fixed-8_4-full-scartch.onnx"
 
     # Int8 quant
     #MODEL_PATH = "/home/nishi/Documents/Visualstudio-torch_env/dog_feel_classify/multimodal_model_quant.onnx" # 量子化版を指定
