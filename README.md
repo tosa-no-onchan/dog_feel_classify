@@ -32,3 +32,7 @@
   $ python  dog_feel_watch.py  
   
   USB カメラ(音声入力付き)が、必要です。  
+
+##### 4. 参照  
+  
+  [画像と音（スペクトログラム）で分類、マルチモーダルTransformer.](https://www.netosa.com/blog/2026/04/transformer.html)  
